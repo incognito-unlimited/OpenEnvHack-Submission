@@ -1,0 +1,103 @@
+name: email-triage-env
+version: "1.0.0"
+description: >
+  A real-world email triage environment where AI agents learn to classify,
+  prioritize, and respond to realistic professional emails. Agents must
+  correctly categorize emails (spam/urgent/work/personal/newsletter/social),
+  assign appropriate priorities (1-5), choose the right action
+  (delete/archive/reply/forward/flag/mark_read), and for urgent emails,
+  draft professional responses.
+
+author: "hackathon-team"
+license: "MIT"
+
+tags:
+  - openenv
+  - email
+  - triage
+  - nlp
+  - real-world
+  - productivity
+  - classification
+
+tasks:
+  - name: easy_triage
+    description: "Categorize 5 carefully selected emails spanning all major categories"
+    difficulty: easy
+    max_steps: 5
+    reward_range: [0.0, 1.0]
+
+  - name: priority_inbox
+    description: "Categorize AND prioritize 10 emails where both matter equally"
+    difficulty: medium
+    max_steps: 10
+    reward_range: [0.0, 1.0]
+
+  - name: full_triage
+    description: "Complete triage of 8 high-stakes emails with required response drafts"
+    difficulty: hard
+    max_steps: 8
+    reward_range: [0.0, 1.0]
+
+observation_space:
+  type: object
+  description: "Current email with metadata and task context"
+  properties:
+    email:
+      type: object
+      fields: [id, sender, subject, body, timestamp, has_attachment, thread_length]
+    inbox_remaining:
+      type: integer
+      description: "Emails left after current one"
+    step_number:
+      type: integer
+    task_name:
+      type: string
+    instructions:
+      type: string
+      description: "Task-specific instructions for the agent"
+
+action_space:
+  type: object
+  description: "Triage decision for the current email"
+  properties:
+    category:
+      type: string
+      enum: [spam, work, personal, newsletter, urgent, social]
+    priority:
+      type: integer
+      minimum: 1
+      maximum: 5
+    action:
+      type: string
+      enum: [delete, archive, reply, forward, flag, mark_read]
+    response_draft:
+      type: string
+      nullable: true
+      description: "Required when action is reply or forward (hard task)"
+
+reward:
+  type: float
+  range: [0.0, 1.0]
+  description: >
+    Weighted combination of category accuracy (0.3-0.6), priority accuracy
+    (0.25-0.4), action appropriateness (0.15-0.2), and response quality (0-0.25).
+    Weights vary by task difficulty. Partial credit for near-correct answers.
+    Bonus for correct spam detection. Penalty for classifying spam as urgent.
+
+endpoints:
+  reset: "POST /reset"
+  step: "POST /step"
+  state: "GET /state"
+  health: "GET /health"
+  tasks: "GET /tasks"
+
+docker:
+  port: 7860
+  build: "docker build -t email-triage-env ."
+  run: "docker run -p 7860:7860 email-triage-env"
+
+baseline_scores:
+  easy_triage: 0.72
+  priority_inbox: 0.61
+  full_triage: 0.54
