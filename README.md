@@ -1,3 +1,14 @@
+---
+title: OpenEnvHackSubmission
+emoji: 🦀
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+tags:
+  - openenv
+---
+
 # 📧 Email Triage OpenEnv
 
 A real-world OpenEnv environment where AI agents learn to **triage a professional inbox**: categorize emails, assign priorities, choose appropriate actions, and draft professional responses for emails that require them.
