@@ -22,14 +22,15 @@ from tasks_data import TASK_REGISTRY
 # Reward clipping for OpenEnv compliance
 # ─────────────────────────────────────────────────────────────────────────────
 
-SCORE_EPSILON = 0.001  # Keep scores strictly away from 0.0 and 1.0
+SCORE_MIN = 0.01
+SCORE_MAX = 0.99
 
 def clip_score(score: float) -> float:
     """Clip score to strictly open interval (0, 1) to satisfy OpenEnv requirements."""
     if score <= 0.0:
-        return SCORE_EPSILON
+        return SCORE_MIN
     if score >= 1.0:
-        return 1.0 - SCORE_EPSILON
+        return SCORE_MAX
     return score
 
 
