@@ -27,11 +27,7 @@ SCORE_MAX = 0.99
 
 def clip_score(score: float) -> float:
     """Clip score to strictly open interval (0, 1) to satisfy OpenEnv requirements."""
-    if score <= 0.0:
-        return SCORE_MIN
-    if score >= 1.0:
-        return SCORE_MAX
-    return score
+    return min(max(float(score), SCORE_MIN), SCORE_MAX)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -237,7 +233,7 @@ class EmailTriageEnvironment:
         act_score_out = clip_score(act_score)
         res_score_out = clip_score(res_score)
 
-        reward = round(float(reward), 4)
+        reward = clip_score(round(float(reward), 4))
         self._step_rewards.append(reward)
 
         triage_reward = TriageReward(
@@ -323,4 +319,4 @@ class EmailTriageEnvironment:
         """Normalized score over the full episode (0.0 - 1.0)."""
         if not self._step_rewards:
             return SCORE_MIN
-        return round(clip_score(sum(self._step_rewards) / len(self._step_rewards)), 4)
+        return clip_score(round(sum(self._step_rewards) / len(self._step_rewards), 4))
