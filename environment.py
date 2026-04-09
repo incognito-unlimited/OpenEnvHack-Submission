@@ -19,6 +19,21 @@ from tasks_data import TASK_REGISTRY
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Reward clipping for OpenEnv compliance
+# ─────────────────────────────────────────────────────────────────────────────
+
+SCORE_EPSILON = 0.001  # Keep scores strictly away from 0.0 and 1.0
+
+def clip_score(score: float) -> float:
+    """Clip score to strictly open interval (0, 1) to satisfy OpenEnv requirements."""
+    if score <= 0.0:
+        return SCORE_EPSILON
+    if score >= 1.0:
+        return 1.0 - SCORE_EPSILON
+    return score
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Grading helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -211,6 +226,9 @@ class EmailTriageEnvironment:
         # Penalty: classifying spam as urgent (dangerous action)
         if gt["category"] == "spam" and action.category == "urgent":
             reward = max(0.0, reward - 0.2)
+
+        # Clip reward to strictly open interval (0, 1)
+        reward = clip_score(reward)
 
         reward = round(float(reward), 4)
         self._step_rewards.append(reward)
