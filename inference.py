@@ -44,6 +44,34 @@ SCORE_MIN = 0.01
 SCORE_MAX = 0.99
 SCORE_EPS = 1e-6
 
+SPAM_MARKERS = {"phish", "verify", "suspended", "lottery", "winner", "crypto", "bank details", "scam"}
+URGENT_MARKERS = {
+    "within 24",
+    "within 48",
+    "deadline",
+    "asap",
+    "immediately",
+    "urgent",
+    "legal",
+    "security",
+    "breach",
+    "incident",
+    "response required",
+}
+REPLY_NEEDED_MARKERS = {
+    "please",
+    "kindly",
+    "need",
+    "required",
+    "can you",
+    "could you",
+    "let me know",
+    "decision",
+    "review",
+    "schedule",
+    "confirm",
+}
+
 if HF_TOKEN is None:
     raise ValueError("HF_TOKEN environment variable is required")
 
@@ -121,6 +149,30 @@ SYSTEM_PROMPT = textwrap.dedent("""
         Email: "Weekly product update: deployment completed successfully."
         Correct Output: {"category":"work","priority":2,"action":"mark_read","response_draft":null}
 """).strip()
+
+
+TASK_SYSTEM_PROMPTS = {
+    "easy_triage": textwrap.dedent("""
+        Task strategy (easy): prioritize correct category first. Use obvious patterns:
+        scams/phishing -> spam+delete, social notifications -> social+archive,
+        subscription content -> newsletter+archive, family/friends -> personal.
+    """).strip(),
+    "priority_inbox": textwrap.dedent("""
+        Task strategy (medium): category and priority are equally important.
+        Distinguish urgent (P5), important work (P3-P4), and low-value feeds (P1-P2).
+        Prefer flag/reply for actionable work and urgent client/ops requests.
+    """).strip(),
+    "full_triage": textwrap.dedent("""
+        Task strategy (hard): maximize action+response quality.
+        For legal/security/client-escalation emails, prefer urgent category and reply/forward.
+        When replying/forwarding, draft a professional response that acknowledges the issue,
+        states immediate next step, and references key constraints (timeline/deadline).
+    """).strip(),
+}
+
+
+def _task_system_prompt(task_name: str) -> str:
+    return TASK_SYSTEM_PROMPTS.get(task_name, "")
 
 
 def build_user_prompt(observation_dict: dict) -> str:
@@ -218,6 +270,71 @@ def _heuristic_fallback(observation_dict: dict) -> Dict[str, Any]:
     return {"category": "work", "priority": 3, "action": "mark_read", "response_draft": None}
 
 
+def _response_template(observation_dict: dict, task_name: str) -> str:
+    email = observation_dict["email"]
+    subject = str(email.get("subject", "your message")).strip()
+    sender = str(email.get("sender", "the sender")).strip()
+    subject_short = subject[:120]
+
+    if task_name == "full_triage":
+        return (
+            f"Thanks for your email regarding '{subject_short}'. "
+            "Acknowledged, and I am treating this as a priority. "
+            "I will review the details immediately and share concrete next steps shortly."
+        )
+
+    return (
+        f"Thanks for your email regarding '{subject_short}'. "
+        f"I have noted this and will follow up with {sender} soon."
+    )
+
+
+def _apply_guardrails(payload: Dict[str, Any], observation_dict: dict, task_name: str) -> Dict[str, Any]:
+    """Apply deterministic policy fixes for common LLM mistakes."""
+    email = observation_dict["email"]
+    sender = str(email.get("sender", "")).lower()
+    subject = str(email.get("subject", "")).lower()
+    body = str(email.get("body", "")).lower()
+    text = f"{sender} {subject} {body}"
+
+    category = payload.get("category", "work")
+    priority = int(payload.get("priority", 3))
+    action = payload.get("action", "mark_read")
+    response_draft = payload.get("response_draft")
+
+    if any(m in text for m in SPAM_MARKERS):
+        return {"category": "spam", "priority": 1, "action": "delete", "response_draft": None}
+
+    urgent_hit = any(m in text for m in URGENT_MARKERS)
+    needs_reply = any(m in text for m in REPLY_NEEDED_MARKERS)
+
+    if urgent_hit:
+        category = "urgent"
+        priority = max(priority, 5 if "within 24" in text else 4)
+        if action in {"delete", "archive", "mark_read"}:
+            action = "reply" if task_name == "full_triage" else "flag"
+
+    if category in {"newsletter", "social"}:
+        priority = min(priority, 2)
+
+    if task_name == "full_triage":
+        if category in {"urgent", "work"} and needs_reply and action in {"mark_read", "archive"}:
+            action = "reply"
+        if action in {"reply", "forward"}:
+            if not isinstance(response_draft, str) or len(response_draft.strip()) < 30:
+                response_draft = _response_template(observation_dict, task_name)
+    else:
+        if action in {"reply", "forward"} and (not isinstance(response_draft, str) or len(response_draft.strip()) < 20):
+            response_draft = _response_template(observation_dict, task_name)
+
+    return {
+        "category": category,
+        "priority": priority,
+        "action": action,
+        "response_draft": response_draft,
+    }
+
+
 def _normalize_action(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize model payload into valid action schema with safe defaults."""
     category = str(payload.get("category", "work")).lower().strip()
@@ -251,21 +368,31 @@ def _normalize_action(payload: Dict[str, Any]) -> Dict[str, Any]:
 def call_llm(client: OpenAI, user_prompt: str, observation_dict: dict) -> dict:
     """Call the LLM and parse the triage JSON response."""
     last_err: Optional[Exception] = None
+    task_name = str(observation_dict.get("task_name", "easy_triage"))
+    system_prompt = SYSTEM_PROMPT
+    task_prompt = _task_system_prompt(task_name)
+    if task_prompt:
+        system_prompt = f"{SYSTEM_PROMPT}\n\n{task_prompt}"
+
     for attempt in range(3):
         try:
+            temperature = 0.1 if task_name == "full_triage" else 0.05
+            max_tokens = 420 if task_name == "full_triage" else 320
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.05,
-                max_tokens=320,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
             raw = completion.choices[0].message.content or ""
             parsed = _coerce_json(raw)
             if parsed is not None:
-                return _normalize_action(parsed)
+                normalized = _normalize_action(parsed)
+                guarded = _apply_guardrails(normalized, observation_dict, task_name)
+                return _normalize_action(guarded)
         except Exception as exc:
             last_err = exc
 
@@ -274,7 +401,9 @@ def call_llm(client: OpenAI, user_prompt: str, observation_dict: dict) -> dict:
 
     if DEBUG_INFERENCE and last_err is not None:
         print(f"[WARN] LLM call fallback after retries: {last_err}", file=os.sys.stderr, flush=True)
-    return _normalize_action(_heuristic_fallback(observation_dict))
+    fallback = _normalize_action(_heuristic_fallback(observation_dict))
+    guarded_fallback = _apply_guardrails(fallback, observation_dict, task_name)
+    return _normalize_action(guarded_fallback)
 
 
 # ── Task runner ───────────────────────────────────────────────────────────────
