@@ -185,7 +185,7 @@ class EmailTriageEnvironment:
         if self._done:
             return StepResult(
                 observation=None,
-                reward=0.0,
+                reward=SCORE_MIN,
                 done=True,
                 info={"error": "Episode already done. Call reset() first."},
             )
@@ -231,15 +231,21 @@ class EmailTriageEnvironment:
         # Clip reward to strictly open interval (0, 1)
         reward = clip_score(reward)
 
+        # Keep all score-like outputs strictly in (0, 1) for validator compatibility.
+        cat_score_out = clip_score(cat_score)
+        pri_score_out = clip_score(pri_score)
+        act_score_out = clip_score(act_score)
+        res_score_out = clip_score(res_score)
+
         reward = round(float(reward), 4)
         self._step_rewards.append(reward)
 
         triage_reward = TriageReward(
             value=reward,
-            category_score=cat_score,
-            priority_score=pri_score,
-            action_score=act_score,
-            response_score=res_score,
+            category_score=cat_score_out,
+            priority_score=pri_score_out,
+            action_score=act_score_out,
+            response_score=res_score_out,
             breakdown={
                 "category_feedback": cat_fb,
                 "priority_feedback": pri_fb,
@@ -264,10 +270,10 @@ class EmailTriageEnvironment:
             info={
                 "reward_breakdown": triage_reward.breakdown,
                 "detailed_scores": {
-                    "category": cat_score,
-                    "priority": pri_score,
-                    "action": act_score,
-                    "response": res_score,
+                    "category": round(cat_score_out, 4),
+                    "priority": round(pri_score_out, 4),
+                    "action": round(act_score_out, 4),
+                    "response": round(res_score_out, 4),
                 },
                 "email_id": email_data["id"],
             },
@@ -315,5 +321,5 @@ class EmailTriageEnvironment:
     def final_score(self) -> float:
         """Normalized score over the full episode (0.0 - 1.0)."""
         if not self._step_rewards:
-            return 0.0
-        return round(sum(self._step_rewards) / len(self._step_rewards), 4)
+            return SCORE_MIN
+        return round(clip_score(sum(self._step_rewards) / len(self._step_rewards)), 4)
