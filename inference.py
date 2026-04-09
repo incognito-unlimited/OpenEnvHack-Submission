@@ -40,6 +40,8 @@ BENCHMARK = "email-triage"
 SUCCESS_SCORE_THRESHOLD = 0.5
 MAX_STEPS_PER_TASK = 12  # Safety cap
 DEBUG_INFERENCE = os.getenv("DEBUG_INFERENCE", "0") == "1"
+SCORE_MIN = 0.01
+SCORE_MAX = 0.99
 
 if HF_TOKEN is None:
     raise ValueError("HF_TOKEN environment variable is required")
@@ -328,12 +330,13 @@ async def run_task(client: OpenAI, task_name: str, session_id: str) -> dict:
             obs = step_result.observation
 
         # Compute normalized score
-        score = sum(rewards) / len(rewards) if rewards else 0.0
-        score = round(min(max(score, 0.0), 1.0), 3)
+        score = sum(rewards) / len(rewards) if rewards else SCORE_MIN
+        score = round(min(max(score, SCORE_MIN), SCORE_MAX), 3)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception:
-        pass
+        score = SCORE_MIN
+        success = False
     finally:
         try:
             await env.close()

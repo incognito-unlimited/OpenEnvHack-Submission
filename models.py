@@ -52,11 +52,11 @@ class TriageAction(BaseModel):
 # ── OpenEnv Reward ────────────────────────────────────────────────────────────
 
 class TriageReward(BaseModel):
-    value: float = Field(ge=0.0, le=1.0)
-    category_score: float
-    priority_score: float
-    action_score: float
-    response_score: float = 0.0
+    value: float = Field(gt=0.0, lt=1.0)
+    category_score: float = Field(gt=0.0, lt=1.0)
+    priority_score: float = Field(gt=0.0, lt=1.0)
+    action_score: float = Field(gt=0.0, lt=1.0)
+    response_score: float = Field(default=0.01, gt=0.0, lt=1.0)
     breakdown: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -64,7 +64,7 @@ class TriageReward(BaseModel):
 
 class StepResult(BaseModel):
     observation: Optional[TriageObservation] = None
-    reward: float
+    reward: float = Field(gt=0.0, lt=1.0)
     done: bool
     info: Dict[str, Any] = Field(default_factory=dict)
 
@@ -79,7 +79,7 @@ class StateResult(BaseModel):
     step: int
     total_emails: int
     emails_processed: int
-    cumulative_reward: float
+    cumulative_reward: float = Field(gt=0.0, lt=1.0)
     done: bool
     step_scores: List[float] = Field(default_factory=list)
     session_id: str = ""
