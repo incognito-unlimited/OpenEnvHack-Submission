@@ -286,7 +286,8 @@ class EmailTriageEnvironment:
             step=self._current_index,
             total_emails=len(self._emails),
             emails_processed=self._current_index,
-            cumulative_reward=round(sum(self._step_rewards), 4),
+            # Expose a normalized task-level score to keep state values in (0, 1).
+            cumulative_reward=self.final_score,
             done=self._done,
             step_scores=list(self._step_rewards),
             session_id=self.session_id,
