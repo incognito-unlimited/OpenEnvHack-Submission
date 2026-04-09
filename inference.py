@@ -66,6 +66,9 @@ SYSTEM_PROMPT = textwrap.dedent("""
     You are an expert email triage assistant. When given an email, respond ONLY with a
     valid JSON object and nothing else. No markdown, no explanation, no backticks.
 
+    Think through the decision internally before answering, but do NOT reveal any scratchpad,
+    chain-of-thought, or reasoning text. The final response must be JSON only.
+
     Required JSON schema:
     {
       "category": "<spam|work|personal|newsletter|urgent|social>",
@@ -92,6 +95,22 @@ SYSTEM_PROMPT = textwrap.dedent("""
       * mark_read: informational emails, no action needed
     - response_draft: REQUIRED if action is "reply" or "forward". Write a professional,
       concise response (2-4 sentences) addressing the main points. Otherwise set to null.
+
+        Boundary rules:
+        - If an email contains a deadline within 24 hours, the category MUST be urgent and the
+            priority MUST be 5.
+        - If the category is spam, the priority MUST be 1 and the action MUST be delete.
+        - Automated system updates are work, not newsletter.
+
+        Examples:
+        Email: "Hey, are we still on for lunch today?"
+        Correct Output: {"category":"personal","priority":3,"action":"reply","response_draft":"Sure, lunch still works for me today. See you then."}
+
+        Email: "Your account will be suspended in 12 hours unless you verify immediately."
+        Correct Output: {"category":"urgent","priority":5,"action":"flag","response_draft":null}
+
+        Email: "Weekly product update: deployment completed successfully."
+        Correct Output: {"category":"work","priority":2,"action":"mark_read","response_draft":null}
 """).strip()
 
 
