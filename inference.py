@@ -12,7 +12,7 @@ MANDATORY ENVIRONMENT VARIABLES:
 STDOUT FORMAT:
     [START] task=<task_name> env=email-triage model=<model_name>
     [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-    [END]   success=<true|false> steps=<n> rewards=<r1,r2,...>
+    [END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,r2,...>
 """
 
 import asyncio
@@ -42,6 +42,7 @@ MAX_STEPS_PER_TASK = 12  # Safety cap
 DEBUG_INFERENCE = os.getenv("DEBUG_INFERENCE", "0") == "1"
 SCORE_MIN = 0.01
 SCORE_MAX = 0.99
+SCORE_EPS = 1e-6
 
 if HF_TOKEN is None:
     raise ValueError("HF_TOKEN environment variable is required")
@@ -63,7 +64,10 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        flush=True,
+    )
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -331,6 +335,7 @@ async def run_task(client: OpenAI, task_name: str, session_id: str) -> dict:
 
         # Compute normalized score
         score = sum(rewards) / len(rewards) if rewards else SCORE_MIN
+        score = max(SCORE_EPS, min(score, 1.0 - SCORE_EPS))
         score = round(min(max(score, SCORE_MIN), SCORE_MAX), 3)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
